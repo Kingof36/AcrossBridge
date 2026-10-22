@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function okFields(d) {
+      return d.keys().hasOnly(['name','bestScore','weekId','weekScore','plays','updatedAt'])
+        && d.name is string && d.name.size() >= 1 && d.name.size() <= 20
+        && d.bestScore is int && d.bestScore >= 0 && d.bestScore <= 5000
+        && d.weekScore is int && d.weekScore >= 0 && d.weekScore <= d.bestScore
+        && d.weekId is string && d.weekId.size() <= 10
+        && d.plays is int && d.plays >= 0
+        && d.updatedAt == request.time;
+    }
+
+    // Không cần đăng nhập: ai biết "tên tài khoản" đều ghi được hồ sơ đó.
+    match /players/{acc} {
+      allow read: if true;
+      allow create: if acc.matches('^[a-z0-9_]{3,20}$') && okFields(request.resource.data)
+                    && request.resource.data.plays <= 1;
+      // Điểm cao nhất chỉ được tăng, số lượt chơi tăng tối đa 1 mỗi lần ghi
+      allow update: if okFields(request.resource.data)
+                    && request.resource.data.bestScore >= resource.data.bestScore
+                    && request.resource.data.plays >= resource.data.plays
+                    && request.resource.data.plays <= resource.data.plays + 1;
+      allow delete: if false;
+    }
+  }
+}

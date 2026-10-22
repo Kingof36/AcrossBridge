@@ -1,0 +1,371 @@
+/* Firebase được nạp NỀN: nếu CDN bị chặn / mất mạng / cấu hình lỗi thì game vẫn chạy (điểm lưu trên máy). */
+let fbFailed = false;
+let FB = { enabled: false, topScores: async () => [], submitScore: async () => null, fetchMe: async () => null };
+
+/* ============ Hằng số & tiện ích ============ */
+const W = 420, H = 700, GROUND = 470, STICK_W = 5, MAX_LEN = 340, GROW = 210, HERO_OFF = 18;
+const $ = id => document.getElementById(id);
+const rand = (a, b) => a + Math.random() * (b - a);
+const cv = $("c"), ctx = cv.getContext("2d");
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("ib_" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("ib_" + k, JSON.stringify(v)); } catch {} }
+};
+let profile = store.get("profile", null);            // { acc: "ten_tai_khoan", name: "Tên hiển thị" }
+let best = 0, plays = 0, soundOn = store.get("sound", true);
+const saveBest = () => profile && store.set("best:" + profile.acc, best);
+function loadProfileData() { best = profile ? store.get("best:" + profile.acc, 0) : 0; plays = profile ? store.get("plays:" + profile.acc, 0) : 0; }
+loadProfileData();
+
+function resize() {
+  const r = window.devicePixelRatio || 1, b = cv.getBoundingClientRect();
+  cv.width = Math.round(b.width * r); cv.height = Math.round(b.height * r);
+}
+addEventListener("resize", resize); resize();
+
+/* ============ Âm thanh ============ */
+let ac;
+function beep(f, d = 0.08, type = "sine", v = 0.12) {
+  if (!soundOn) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = f; g.gain.value = v;
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + d);
+    o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+  } catch {}
+}
+
+/* ============ Chủ đề theo điểm ============ */
+// [top RGB, bottom RGB, cột RGB, cầu RGB, độ sáng sao]
+const THEMES = [
+  [90, 170, 255, 205, 235, 255, 52, 64, 86, 255, 213, 74, 0],      // 0–20 : trời xanh
+  [255, 120, 90, 255, 205, 130, 74, 45, 84, 255, 245, 210, 0.1],   // 21–50: hoàng hôn
+  [15, 20, 60, 50, 60, 120, 32, 42, 74, 120, 255, 220, 1],         // 51–100: đêm
+  [40, 10, 80, 130, 40, 150, 52, 26, 96, 255, 120, 200, 1]         // >100: thiên hà
+];
+const themeOf = s => (s <= 20 ? 0 : s <= 50 ? 1 : s <= 100 ? 2 : 3);
+let th = THEMES[0].slice();
+const rgb = (a, i) => `rgb(${a[i] | 0},${a[i + 1] | 0},${a[i + 2] | 0})`;
+
+const stars = Array.from({ length: 70 }, () => ({ x: rand(0, W), y: rand(0, H * 0.6), s: rand(1, 2.4), p: rand(0, 6) }));
+const clouds = Array.from({ length: 6 }, (_, i) => ({ x: i * 90 + rand(0, 40), y: rand(60, 280), r: rand(18, 34), k: rand(0.1, 0.3) }));
+const islands = Array.from({ length: 4 }, (_, i) => ({ x: i * 130, y: rand(120, 360), w: rand(40, 80), k: rand(0.25, 0.5) }));
+
+
+/* ============ Sprite đại bàng pixel-art (18×20) ============ */
+const SPR_BODY = [
+".......KKKK.......","......KWWWWK......",".....KWWWWWWK.....",".....KWWWAEWYK....",
+".....KWWWWWYYYK...",".....KWWWWWWYOK...","....KKWWWWWWKK....","...KBBKWWWWWK.....",
+"..KBLBBKWWWK......","..KBLLBBBBBK......",".KBLBLLBBBBBK.....",".KBBLBBLBBBBK.....",
+".KBBBLBBBBBBK.....","KWGBBBBBBBBBK.....","KGWWBBBBBBBK......",".KGWWKBBBBBK......","..KKGKBBBBK......."];
+const SPR_FEET = [
+ [".....KYYKKYYK.....",".....KYYYKYYYK....","......KKK.KKK....."],   // chân đứng
+ ["....KYYK..KYYK....","....KYYYK.KYYYK...",".....KKK...KKK...."]];  // chân bước
+const PAL = { K: "#2a1a10", B: "#6b3f1f", L: "#a5662f", W: "#f4f4f4", G: "#c8cddc", Y: "#f2b632", O: "#e08a1e", A: "#e8a020", E: "#111111" };
+function makeSprite(feet) {
+  const c = document.createElement("canvas"); c.width = 18; c.height = 20;
+  const x = c.getContext("2d");
+  SPR_BODY.concat(feet).forEach((row, y) => [...row].forEach((ch, i) => { if (PAL[ch]) { x.fillStyle = PAL[ch]; x.fillRect(i, y, 1, 1); } }));
+  return c;
+}
+const EAGLE = [makeSprite(SPR_FEET[0]), makeSprite(SPR_FEET[1])];
+$("eagleBig").getContext("2d").drawImage(EAGLE[0], 0, 0);
+
+/* ============ Trạng thái game ============ */
+const g = { state: "menu", pillars: [], sticks: [], stick: null, hero: null, cam: 0, camT: 0, score: 0, shake: 0, success: false, perfect: false, av: 0, tick: 0, started: false };
+let t = 0;
+
+function spawn() {
+  const last = g.pillars[g.pillars.length - 1];
+  const d = Math.min(g.score / 80, 1);                 // độ khó 0 → 1
+  const gap = rand(35 + d * 25, 110 + d * 130);        // khoảng cách luôn ≤ 240 < MAX_LEN
+  const bonus = g.pillars.length > 1 && Math.random() < 0.14 * (1 - d * 0.7);
+  const w = rand(40 + (1 - d) * 20, 84 - d * 32);   // đầu game cột rộng, dễ căn
+  g.pillars.push({ x: last.x + last.w + gap, w, bonus });
+}
+
+function reset() {
+  g.pillars = [{ x: 30, w: 80, bonus: false }]; g.sticks = []; g.stick = null;
+  g.score = 0; g.cam = 0; g.camT = 0; g.shake = 0; g.started = false;
+  spawn();
+  g.hero = { x: 30 + 80 - HERO_OFF, y: GROUND, vy: 0, tx: 0 };
+  $("score").textContent = "0";
+}
+const cur = () => g.pillars[g.pillars.length - 2];
+const nxt = () => g.pillars[g.pillars.length - 1];
+
+function say(txt) {
+  const m = $("msg"); m.textContent = txt; m.classList.remove("pop"); void m.offsetWidth; m.classList.add("pop");
+}
+
+/* ============ Điều khiển ============ */
+function down() {
+  if (g.state !== "idle") return;
+  if (!g.started) { g.started = true; $("hint").classList.add("hidden"); }
+  const c = cur();
+  g.stick = { bx: c.x + c.w, len: 0, angle: 0 };
+  g.sticks.push(g.stick);
+  g.state = "growing"; g.tick = 0;
+}
+function up() {
+  if (g.state !== "growing") return;
+  g.state = "falling"; g.av = 0;
+}
+// Dùng touch + mouse (ổn định hơn pointer events trên Android khi GIỮ lâu).
+// preventDefault ở touchstart chặn menu "giữ lâu", chọn văn bản và cuộn trang.
+const NOPASSIVE = { passive: false };
+cv.addEventListener("touchstart", e => { e.preventDefault(); down(); }, NOPASSIVE);
+cv.addEventListener("touchmove", e => e.preventDefault(), NOPASSIVE);
+addEventListener("touchend", up);
+addEventListener("touchcancel", up);
+cv.addEventListener("mousedown", e => { e.preventDefault(); down(); });
+addEventListener("mouseup", up);
+addEventListener("contextmenu", e => e.preventDefault());
+addEventListener("blur", up);
+document.addEventListener("visibilitychange", () => { if (document.hidden) up(); });
+addEventListener("keydown", e => { if (e.code === "Space" && !e.repeat && !/INPUT/.test(document.activeElement.tagName)) { e.preventDefault(); down(); } });
+addEventListener("keyup", e => { if (e.code === "Space") up(); });
+
+/* ============ Cập nhật ============ */
+function update(dt) {
+  t += dt;
+  const target = THEMES[themeOf(g.score)];
+  for (let i = 0; i < th.length; i++) th[i] += (target[i] - th[i]) * Math.min(1, dt * 2);
+  g.cam += (g.camT - g.cam) * Math.min(1, dt * 5);
+  g.shake = Math.max(0, g.shake - dt * 30);
+
+  if (g.state === "growing") {
+    g.stick.len = Math.min(MAX_LEN, g.stick.len + GROW * dt);
+    g.tick += dt;
+    if (g.tick > 0.07) { g.tick = 0; beep(220 + g.stick.len * 1.5, 0.05, "triangle", 0.05); }
+  }
+  else if (g.state === "falling") {
+    g.av += 20 * dt; g.stick.angle += g.av * dt;
+    if (g.stick.angle >= Math.PI / 2) { g.stick.angle = Math.PI / 2; settle(); }
+  }
+  else if (g.state === "walking") {
+    const speed = Math.min(420, 260 + g.score * 2.5);          // nhân vật nhanh dần
+    g.hero.x = Math.min(g.hero.tx, g.hero.x + speed * dt);
+    if (g.hero.x >= g.hero.tx) {
+      if (g.success) land();
+      else { g.state = "dying"; g.hero.vy = 0; beep(300, 0.4, "sawtooth", 0.1); }
+    }
+  }
+  else if (g.state === "dying") {
+    g.hero.vy += 1500 * dt; g.hero.y += g.hero.vy * dt;
+    g.stick.angle = Math.min(Math.PI, g.stick.angle + dt * 4);   // cầu đổ theo
+    if (g.hero.y > H + 60) gameOver();
+  }
+
+  // dọn đối tượng ở phía sau để tiết kiệm bộ nhớ
+  while (g.pillars.length > 3 && g.pillars[0].x + g.pillars[0].w < g.cam - 60) g.pillars.shift();
+  g.sticks = g.sticks.filter(s => s.bx + s.len > g.cam - 60);
+}
+
+function settle() {            // cầu đã đổ xong → kiểm tra
+  const s = g.stick, n = nxt(), end = s.bx + s.len;
+  g.shake = 6; beep(110, 0.12, "square", 0.12);
+  g.success = end >= n.x && end <= n.x + n.w;
+  g.perfect = g.success && Math.abs(end - (n.x + n.w / 2)) <= 5;
+  g.hero.tx = g.success ? n.x + n.w - HERO_OFF : end;
+  g.state = "walking";
+}
+
+function land() {
+  const n = nxt();
+  let pts = 1, txt = "";
+  if (g.perfect) { pts += 1; txt = "Hoàn hảo! +1"; }
+  if (n.bonus) { pts += 2; txt = (txt ? txt + "  " : "") + "Cột thưởng +2"; }
+  g.score += pts;
+  $("score").textContent = g.score;
+  if (txt) say(txt);
+  g.perfect ? beep(880, 0.2, "sine", 0.15) : beep(520, 0.1, "sine", 0.12);
+  g.shake = 3;
+  g.camT = n.x + n.w - 110;
+  spawn();
+  g.stick = null; g.state = "idle";
+}
+
+/* ============ Vẽ ============ */
+function drawHero(h) {
+  const walking = g.state === "walking";
+  const frame = walking ? (Math.floor(t * 10) % 2) : 0;
+  const bob = walking ? Math.abs(Math.sin(t * 20)) * -2 : 0;
+  const SC = 2;                                        // mỗi pixel = 2 đơn vị
+  ctx.save();
+  ctx.translate(h.x, h.y + bob);
+  if (g.state === "dying") ctx.rotate(Math.min(1.6, h.vy / 700));
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(EAGLE[frame], -9 * SC, -20 * SC, 18 * SC, 20 * SC);
+  ctx.restore();
+}
+
+function draw() {
+  ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+  const gr = ctx.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0, rgb(th, 0)); gr.addColorStop(1, rgb(th, 3));
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+
+  if (th[12] > 0.02) {                                           // sao
+    ctx.fillStyle = "#fff";
+    for (const s of stars) { ctx.globalAlpha = th[12] * (0.45 + 0.55 * Math.sin(t * 2 + s.p)); ctx.fillRect(s.x, s.y, s.s, s.s); }
+  }
+  ctx.globalAlpha = 0.5 * (1 - Math.min(1, th[12]));             // mây
+  ctx.fillStyle = "#fff";
+  for (const c of clouds) {
+    const x = (((c.x - g.cam * c.k) % (W + 160)) + (W + 160)) % (W + 160) - 80;
+    ctx.beginPath(); ctx.ellipse(x, c.y, c.r * 1.8, c.r, 0, 0, 7); ctx.ellipse(x + c.r, c.y - c.r * 0.5, c.r, c.r * 0.8, 0, 0, 7); ctx.fill();
+  }
+  const ia = Math.max(0, Math.min(1, (g.score - 80) / 40));      // đảo bay (thiên hà)
+  if (ia > 0) {
+    ctx.globalAlpha = ia * 0.7;
+    for (const i of islands) {
+      const x = (((i.x - g.cam * i.k) % (W + 200)) + (W + 200)) % (W + 200) - 100, y = i.y + Math.sin(t + i.x) * 5;
+      ctx.fillStyle = "#6b4d9e"; ctx.beginPath(); ctx.moveTo(x - i.w / 2, y); ctx.lineTo(x + i.w / 2, y); ctx.lineTo(x, y + i.w * 0.45); ctx.fill();
+      ctx.fillStyle = "#58d68d"; ctx.fillRect(x - i.w / 2, y - 4, i.w, 5);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.save();
+  ctx.translate(-g.cam + (Math.random() - 0.5) * g.shake, (Math.random() - 0.5) * g.shake);
+
+  g.pillars.forEach((p, idx) => {                                // cột
+    ctx.fillStyle = p.bonus ? "#f2b632" : rgb(th, 6);
+    ctx.fillRect(p.x, GROUND, p.w, H - GROUND + 20);
+    if (!p.bonus) { ctx.fillStyle = "#5aa845"; ctx.fillRect(p.x, GROUND, p.w, 5); }
+    ctx.fillStyle = "rgba(255,255,255,.18)"; ctx.fillRect(p.x, GROUND, p.w, 2);
+    if (p.bonus) { ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = "20px sans-serif"; ctx.textAlign = "center"; ctx.fillText("★", p.x + p.w / 2, GROUND + 40); }
+    if (idx > 0) { ctx.fillStyle = "#ff4d4d"; ctx.fillRect(p.x + p.w / 2 - 3, GROUND, 6, 4); }  // vùng hoàn hảo
+  });
+
+  for (const s of g.sticks) {                                    // cầu
+    ctx.save(); ctx.translate(s.bx, GROUND); ctx.rotate(s.angle);
+    ctx.fillStyle = rgb(th, 9); ctx.fillRect(-STICK_W / 2, -s.len, STICK_W, s.len);
+    ctx.restore();
+  }
+  if (g.hero) drawHero(g.hero);
+  ctx.restore();
+}
+
+/* ============ Vòng lặp ============ */
+let last = performance.now();
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  try { update(dt); draw(); }
+  catch (e) { console.error(e); const d = $("dbg"); if (d) d.textContent = "Lỗi game: " + e.message; }
+}
+
+/* ============ Giao diện ============ */
+const show = id => $(id).classList.remove("hidden");
+const hide = id => $(id).classList.add("hidden");
+
+function refreshLabels() {
+  $("menuBest").textContent = best;
+  $("overBest").textContent = best;
+  $("userInfo").textContent = profile ? `Xin chào, ${profile.name} (@${profile.acc})` : "";
+  $("btnAuth").textContent = "👤 Đổi người chơi";
+  $("btnSound").textContent = `${soundOn ? "🔊" : "🔇"} Âm thanh: ${soundOn ? "bật" : "tắt"}`;
+}
+
+function startGame() {
+  hide("menu"); hide("over"); show("hud"); show("hint");
+  reset(); g.state = "idle";
+}
+function goHome() { hide("over"); hide("hud"); hide("hint"); hide("login"); reset(); g.state = "menu"; show("menu"); refreshLabels(); }
+function goLogin() {
+  if (profile) { $("lgAcc").value = profile.acc; $("lgName").value = profile.name; }
+  hide("menu"); hide("over"); hide("hud"); hide("hint"); $("loginErr").textContent = ""; reset(); g.state = "menu"; show("login"); }
+
+async function gameOver() {
+  g.state = "over";
+  plays++; if (profile) store.set("plays:" + profile.acc, plays);
+  const isNew = g.score > best;
+  if (isNew) { best = g.score; saveBest(); }
+  $("overScore").textContent = g.score;
+  $("overNew").textContent = isNew && g.score > 0 ? "🎉 Kỷ lục mới!" : "";
+  refreshLabels();
+  hide("hud"); hide("hint"); show("over");
+  if (profile && g.score > 0) {
+    try { await FB.submitScore(profile.acc, profile.name, g.score); } catch (e) { console.warn("Không gửi được điểm:", e); }
+  }
+}
+
+$("btnPlay").onclick = startGame;
+$("btnReplay").onclick = startGame;
+$("btnHome").onclick = goHome;
+$("btnSound").onclick = () => { soundOn = !soundOn; store.set("sound", soundOn); refreshLabels(); beep(600); };
+
+/* --- Bảng xếp hạng --- */
+let lbKind = "all";
+async function openLb() {
+  show("lb"); loadLb(lbKind);
+}
+async function loadLb(kind) {
+  lbKind = kind;
+  $("tabAll").classList.toggle("on", kind === "all");
+  $("tabWeek").classList.toggle("on", kind === "week");
+  const ul = $("lbList"), note = $("lbNote");
+  ul.innerHTML = ""; note.textContent = "";
+  if (!FB.enabled) { note.textContent = "Chưa cấu hình Firebase (xem firebase-config.js)."; return; }
+  note.textContent = "Đang tải…";
+  try {
+    const rows = await FB.topScores(kind, 20);
+    note.textContent = rows.length ? "" : "Chưa có ai trên bảng xếp hạng.";
+    const me = profile;
+    rows.forEach((r, i) => {
+      const li = document.createElement("li");
+      if (me && me.acc === r.id) li.className = "me";
+      const a = document.createElement("span"); a.className = "rk"; a.textContent = i + 1;
+      const b = document.createElement("span"); b.className = "nm"; b.textContent = r.name + (me && me.acc === r.id ? " (Bạn)" : "");
+      const c = document.createElement("span"); c.className = "sc"; c.textContent = r.score;
+      li.append(a, b, c); ul.append(li);
+    });
+  } catch (e) {
+    console.warn(e);
+    note.textContent = kind === "week" ? "Không tải được. Có thể cần tạo index Firestore (xem Console trình duyệt)." : "Không tải được bảng xếp hạng.";
+  }
+}
+$("btnLbMenu").onclick = openLb;
+$("btnLbOver").onclick = openLb;
+$("lbClose").onclick = () => hide("lb");
+$("tabAll").onclick = () => loadLb("all");
+$("tabWeek").onclick = () => loadLb("week");
+
+/* --- Nhập tên để chơi (không mật khẩu, không đăng nhập) --- */
+const ACC_RE = /^[A-Za-z0-9_]{3,20}$/;
+function enter() {
+  const err = $("loginErr"); err.textContent = "";
+  const acc = $("lgAcc").value.trim().toLowerCase(), name = $("lgName").value.trim().slice(0, 20);
+  if (!ACC_RE.test(acc)) { err.textContent = "Tên tài khoản 3–20 ký tự: chữ không dấu, số hoặc dấu _"; return; }
+  if (!name) { err.textContent = "Hãy nhập tên hiển thị."; return; }
+  profile = { acc, name }; store.set("profile", profile);
+  loadProfileData();
+  goHome();                 // vào chơi ngay, không chờ mạng
+  syncProfile();
+}
+async function syncProfile() {          // đồng bộ kỷ lục giữa máy và Firebase (nếu có)
+  if (!profile || !FB.enabled) return;
+  try {
+    const r = await FB.fetchMe(profile.acc);
+    const rb = r?.bestScore || 0;
+    if (rb > best) { best = rb; saveBest(); }
+    else if (best > rb || (r && r.name !== profile.name)) await FB.submitScore(profile.acc, profile.name, best, { countPlay: false });
+    refreshLabels();
+  } catch (e) { console.warn("Đồng bộ lỗi:", e); }
+}
+$("btnEnter").onclick = enter;
+$("lgName").addEventListener("keydown", e => { if (e.key === "Enter") enter(); });
+$("btnAuth").onclick = goLogin;
+import("./firebase.js?v=6")
+  .then(m => { FB = m; syncProfile(); refreshLabels(); })
+  .catch(e => { fbFailed = true; console.warn("Không nạp được Firebase:", e); });
+
+/* ============ Khởi động ============ */
+reset(); refreshLabels();
+if (profile) goHome();      // đã có tên từ lần trước → vào thẳng menu
+requestAnimationFrame(loop);
+window.__ibReady = true;
