@@ -1,4 +1,11 @@
-import * as FB from "./firebase.js";
+/* Firebase được nạp NỀN: nếu CDN bị chặn / mất mạng / cấu hình lỗi thì game vẫn chạy (chơi khách). */
+const offline = async () => { throw new Error("Chưa kết nối được Firebase."); };
+let fbFailed = false;
+let FB = {
+  enabled: false, onUser: cb => cb(null), currentUser: () => null,
+  topScores: async () => [], submitScore: async () => null, fetchMe: async () => null,
+  loginGoogle: offline, loginFacebook: offline, loginEmail: offline, registerEmail: offline, logout: async () => {}
+};
 
 /* ============ Hằng số & tiện ích ============ */
 const W = 420, H = 700, GROUND = 470, STICK_W = 5, MAX_LEN = 340, GROW = 230, HERO_OFF = 18;
@@ -331,7 +338,7 @@ const ERR = {
 };
 async function doAuth(fn, errEl = "authErr") {
   $("authErr").textContent = ""; $("loginErr").textContent = "";
-  if (!FB.enabled) { $(errEl).textContent = "Chưa cấu hình Firebase (firebase-config.js). Bạn vẫn có thể chơi khách."; return; }
+  if (!FB.enabled) { $(errEl).textContent = fbFailed ? "Không tải được Firebase (kiểm tra mạng hoặc trình chặn quảng cáo). Bạn vẫn có thể chơi khách." : "Chưa cấu hình Firebase (firebase-config.js) hoặc đang tải… Bạn vẫn có thể chơi khách."; return; }
   try { await fn(); hide("auth"); }
   catch (e) { $(errEl).textContent = ERR[e.code] || e.message; }
 }
@@ -346,18 +353,23 @@ $("btnLogin").onclick = () => doAuth(() => FB.loginEmail($("aEmail").value.trim(
 $("btnRegister").onclick = () => doAuth(() => FB.registerEmail($("aEmail").value.trim(), $("aPass").value, $("aName").value.trim()));
 
 // Khi đăng nhập: đồng bộ điểm cao nhất giữa máy và máy chủ
-FB.onUser(async u => {
-  user = u; refreshLabels();
-  if (!u) return;
-  if (!$("login").classList.contains("hidden")) goHome();   // đăng nhập xong → vào menu
-  try {
-    const remote = await FB.fetchMe();
-    const rb = remote?.bestScore || 0;
-    if (rb > best) { best = rb; store.set("best", best); }
-    else if (best > rb) await FB.submitScore(best, { countPlay: false });
-    refreshLabels();
-  } catch (e) { console.warn("Đồng bộ lỗi:", e); }
-});
+function watchUser() {
+  FB.onUser(async u => {
+    user = u; refreshLabels();
+    if (!u) return;
+    if (!$("login").classList.contains("hidden")) goHome();   // đăng nhập xong → vào menu
+    try {
+      const remote = await FB.fetchMe();
+      const rb = remote?.bestScore || 0;
+      if (rb > best) { best = rb; store.set("best", best); }
+      else if (best > rb) await FB.submitScore(best, { countPlay: false });
+      refreshLabels();
+    } catch (e) { console.warn("Đồng bộ lỗi:", e); }
+  });
+}
+import("./firebase.js")
+  .then(m => { FB = m; watchUser(); refreshLabels(); })
+  .catch(e => { fbFailed = true; console.warn("Không nạp được Firebase:", e); refreshLabels(); });
 
 /* ============ Khởi động ============ */
 reset(); refreshLabels();
