@@ -55,7 +55,7 @@
     backdrop-filter:none;justify-content:flex-end;padding-bottom:max(36px,env(safe-area-inset-bottom));overflow:hidden}
   #login::before,#login::after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.18);filter:blur(1px)}
   #login::before{width:60px;height:60px;top:9%;right:12%}
-  #login::after{width:34px;height:34px;bottom:38%;left:8%;background:rgba(80,200,255,.35)}
+  #login::after{width:34px;height:34px;top:30%;left:8%;background:rgba(80,200,255,.35)}
   #loginTop{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
   #eagleBig{width:150px;height:auto;image-rendering:pixelated;filter:drop-shadow(0 10px 18px rgba(0,0,0,.45));animation:float 2.6s ease-in-out infinite}
   @keyframes float{50%{transform:translateY(-8px)}}
@@ -64,9 +64,11 @@
   .lg-label{align-self:flex-start;font-size:12px!important;letter-spacing:2px;opacity:.9;margin-top:6px!important}
   .lg-btns{width:100%;display:flex;flex-direction:column;gap:10px}
   .lg-btns button{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;border-radius:6px;border:none;font-size:16px;padding:14px}
-  .lg-fb{background:#4267b2}
-  .lg-gg{background:#b4cc3a;color:#26310a}
-  .lg-guest{background:transparent!important;border:1.5px solid rgba(255,255,255,.85)!important}
+  .lg-primary{background:linear-gradient(#ffcf3f,#ff9d1c);color:#3a2300}
+  .lg-btns input{background:rgba(255,255,255,.16);border:1.5px solid rgba(255,255,255,.6);color:#fff;font-size:17px;padding:14px}
+  .lg-btns input::placeholder{color:rgba(255,255,255,.7)}
+  .lg-btns .row button{width:auto;flex:1}
+    .lg-guest{background:transparent!important;border:1.5px solid rgba(255,255,255,.85)!important}
   .lg-ico{font-weight:900;font-size:18px;width:22px;text-align:center}
   .lg-link{background:none!important;border:none!important;min-width:0;font-size:14px!important;text-decoration:underline;opacity:.9;padding:4px!important}
   #loginErr{color:#ffd3d3;font-size:14px;min-height:18px}
@@ -86,12 +88,15 @@
       <h1>ĐẠI BÀNG</h1>
       <p class="tag">Tự do – Vươn xa</p>
     </div>
-    <p class="lg-label">ĐĂNG NHẬP</p>
+    <p class="lg-label">ĐĂNG NHẬP / ĐĂNG KÝ</p>
     <div class="lg-btns">
-      <button class="lg-fb" id="btnFacebook"><span class="lg-ico">f</span>Facebook</button>
-      <button class="lg-gg" id="btnGoogle2"><span class="lg-ico">G</span>Google</button>
-      <button class="lg-guest" id="btnGuest"><span class="lg-ico">☺</span>Chơi khách</button>
-      <button class="lg-link" id="btnEmail">Dùng email &amp; mật khẩu</button>
+      <input id="lgName" placeholder="Tên hiển thị (chữ không dấu, số, _)" maxlength="20" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <input id="lgPass" type="password" placeholder="Mật khẩu (từ 6 ký tự)" autocomplete="current-password">
+      <div class="row">
+        <button class="lg-primary" id="btnLogin">Đăng nhập</button>
+        <button class="lg-guest" id="btnRegister">Đăng ký</button>
+      </div>
+      <button class="lg-link" id="btnGuest">Chơi khách (không lưu bảng xếp hạng)</button>
     </div>
     <div id="loginErr"></div>
   </div>
@@ -127,19 +132,11 @@
     </div>
   </div>
 
-  <div class="modal hidden" id="auth">
-    <div class="card">
-      <h3>Đăng nhập</h3>
-      <button id="btnGoogle">Đăng nhập bằng Google</button>
-      <input id="aName" placeholder="Tên hiển thị (khi đăng ký)" maxlength="20" autocomplete="nickname">
-      <input id="aEmail" type="email" placeholder="Email" autocomplete="email">
-      <input id="aPass" type="password" placeholder="Mật khẩu (≥ 6 ký tự)" autocomplete="current-password">
-      <div class="row"><button id="btnLogin">Đăng nhập</button><button id="btnRegister">Đăng ký</button></div>
-      <div id="authErr"></div>
-      <button id="authClose">Chơi khách (không đăng nhập)</button>
-    </div>
-  </div>
 </div>
-<script type="module" src="game.js"></script>
+<script>
+window.addEventListener('error',function(e){var el=document.getElementById('loginErr');if(el)el.textContent='Lỗi: '+(e.message||'không rõ');});
+setTimeout(function(){if(!window.__ibReady){var el=document.getElementById('loginErr');if(el)el.textContent='Game chưa tải được. Hãy tải lại trang (xóa cache) và kiểm tra đã đưa ĐỦ file lên GitHub (game.js, firebase.js, firebase-config.js).';}},4000);
+</script>
+<script type="module" src="game.js?v=4"></script>
 </body>
 </html>
