@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0f1538">
+<title>Đại Bàng – Tự do, Vươn xa</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+  html,body{margin:0;height:100%;background:#0b0f2a;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#fff;overflow:hidden;touch-action:none}
+  body{display:flex;align-items:center;justify-content:center}
+  #app{position:relative;height:100dvh;max-height:100vh;aspect-ratio:420/700;max-width:100vw;overflow:hidden;background:#000}
+  #c{width:100%;height:100%;display:block}
+  #hud{position:absolute;top:0;left:0;right:0;text-align:center;pointer-events:none;padding-top:max(14px,env(safe-area-inset-top))}
+  #score{font-size:64px;font-weight:800;text-shadow:0 3px 10px rgba(0,0,0,.35);line-height:1}
+  #msg{height:28px;margin-top:6px;font-weight:700;font-size:20px;color:#ffe27a;text-shadow:0 2px 6px rgba(0,0,0,.4)}
+  #msg.pop{animation:pop .9s ease-out}
+  @keyframes pop{0%{opacity:0;transform:translateY(10px) scale(.8)}20%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-14px)}}
+  #hint{position:absolute;bottom:12%;left:0;right:0;text-align:center;font-size:17px;opacity:.9;pointer-events:none;text-shadow:0 2px 6px rgba(0,0,0,.5)}
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(8,12,40,.55);backdrop-filter:blur(3px);text-align:center;padding:24px}
+  .screen h1{margin:0;font-size:46px;letter-spacing:3px;line-height:1.05;font-weight:900;text-shadow:0 4px 18px rgba(255,200,80,.5)}
+  .screen h2{margin:0;font-size:38px;font-weight:900;letter-spacing:2px}
+  .sub{margin:0 0 10px;opacity:.85;letter-spacing:4px;text-transform:uppercase;font-size:13px}
+  .screen p{margin:2px 0;font-size:20px}
+  .small{font-size:14px!important;opacity:.8}
+  b{color:#ffe27a}
+  button{font:inherit;font-weight:700;color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);border-radius:14px;padding:12px 22px;min-width:220px;font-size:17px;cursor:pointer}
+  button:active{transform:scale(.97)}
+  button.primary{background:linear-gradient(#ffcf3f,#ff9d1c);color:#3a2300;border:none;font-size:22px;padding:15px 30px}
+  button.ghost{min-width:0;padding:8px 14px}
+  .hidden{display:none!important}
+  .modal{position:absolute;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:16px;z-index:5}
+  .card{width:100%;max-width:380px;max-height:92%;overflow:auto;background:#161c47;border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:10px}
+  .card h3{margin:0;text-align:center;font-size:22px}
+  .tabs{display:flex;gap:8px}
+  .tabs button{flex:1;min-width:0;padding:8px;font-size:14px}
+  .tabs button.on{background:#ffb52b;color:#3a2300}
+  #lbList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;min-height:80px}
+  #lbList li{display:flex;gap:10px;align-items:center;background:rgba(255,255,255,.08);padding:8px 12px;border-radius:10px;font-size:16px}
+  #lbList li.me{background:rgba(255,200,60,.25);outline:1px solid #ffc83c}
+  #lbList .rk{width:28px;font-weight:800;color:#ffe27a}
+  #lbList .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #lbList .sc{font-weight:800}
+  input{font:inherit;padding:11px 12px;border-radius:10px;border:1px solid #3c4690;background:#0e1335;color:#fff;width:100%;user-select:text;-webkit-user-select:text}
+  .row{display:flex;gap:8px}.row button{flex:1;min-width:0}
+  #authErr,#lbNote{color:#ff9a9a;font-size:14px;text-align:center;min-height:18px}
+  #lbNote{color:#cfd6ff}
+
+  /* ===== Màn hình đăng nhập (phong cách neon) ===== */
+  #login{z-index:4;background:
+      radial-gradient(circle at 18% 12%,rgba(0,230,255,.55),transparent 38%),
+      radial-gradient(circle at 88% 10%,rgba(255,200,90,.45),transparent 30%),
+      radial-gradient(circle at 80% 85%,rgba(255,60,150,.5),transparent 45%),
+      linear-gradient(160deg,#2a2bd8 0%,#7a2fd0 45%,#d0287e 100%);
+    backdrop-filter:none;justify-content:flex-end;padding-bottom:max(36px,env(safe-area-inset-bottom));overflow:hidden}
+  #login::before,#login::after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.18);filter:blur(1px)}
+  #login::before{width:60px;height:60px;top:9%;right:12%}
+  #login::after{width:34px;height:34px;bottom:38%;left:8%;background:rgba(80,200,255,.35)}
+  #loginTop{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+  #eagleBig{width:150px;height:auto;image-rendering:pixelated;filter:drop-shadow(0 10px 18px rgba(0,0,0,.45));animation:float 2.6s ease-in-out infinite}
+  @keyframes float{50%{transform:translateY(-8px)}}
+  #login h1{font-size:54px;letter-spacing:4px;text-shadow:0 4px 0 rgba(0,0,0,.25),0 0 24px rgba(255,255,255,.35)}
+  #login .tag{margin:0;font-size:15px;letter-spacing:3px;opacity:.95}
+  .lg-label{align-self:flex-start;font-size:12px!important;letter-spacing:2px;opacity:.9;margin-top:6px!important}
+  .lg-btns{width:100%;display:flex;flex-direction:column;gap:10px}
+  .lg-btns button{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;border-radius:6px;border:none;font-size:16px;padding:14px}
+  .lg-fb{background:#4267b2}
+  .lg-gg{background:#b4cc3a;color:#26310a}
+  .lg-guest{background:transparent!important;border:1.5px solid rgba(255,255,255,.85)!important}
+  .lg-ico{font-weight:900;font-size:18px;width:22px;text-align:center}
+  .lg-link{background:none!important;border:none!important;min-width:0;font-size:14px!important;text-decoration:underline;opacity:.9;padding:4px!important}
+  #loginErr{color:#ffd3d3;font-size:14px;min-height:18px}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="c"></canvas>
+
+  <div id="hud" class="hidden"><div id="score">0</div><div id="msg"></div></div>
+  <div id="hint" class="hidden">Giữ để kéo cầu dài ra – thả tay để cầu đổ xuống</div>
+
+
+  <div class="screen" id="login">
+    <div id="loginTop">
+      <canvas id="eagleBig" width="18" height="20"></canvas>
+      <h1>ĐẠI BÀNG</h1>
+      <p class="tag">Tự do – Vươn xa</p>
+    </div>
+    <p class="lg-label">ĐĂNG NHẬP</p>
+    <div class="lg-btns">
+      <button class="lg-fb" id="btnFacebook"><span class="lg-ico">f</span>Facebook</button>
+      <button class="lg-gg" id="btnGoogle2"><span class="lg-ico">G</span>Google</button>
+      <button class="lg-guest" id="btnGuest"><span class="lg-ico">☺</span>Chơi khách</button>
+      <button class="lg-link" id="btnEmail">Dùng email &amp; mật khẩu</button>
+    </div>
+    <div id="loginErr"></div>
+  </div>
+
+  <div class="screen hidden" id="menu">
+    <h1>ĐẠI BÀNG</h1>
+    <p class="sub">Tự do – Vươn xa</p>
+    <p>Kỷ lục: <b id="menuBest">0</b></p>
+    <button id="btnPlay" class="primary">▶ CHƠI</button>
+    <button id="btnLbMenu">🏆 Bảng xếp hạng</button>
+    <button id="btnAuth">👤 Đăng nhập</button>
+    <p id="userInfo" class="small">Đang chơi khách</p>
+    <button id="btnSound" class="ghost">🔊 Âm thanh: bật</button>
+  </div>
+
+  <div class="screen hidden" id="over">
+    <h2>GAME OVER</h2>
+    <p>Điểm: <b id="overScore">0</b></p>
+    <p>Kỷ lục: <b id="overBest">0</b></p>
+    <p id="overNew" class="small"></p>
+    <button id="btnReplay" class="primary">CHƠI LẠI</button>
+    <button id="btnLbOver">🏆 Bảng xếp hạng</button>
+    <button id="btnHome">🏠 Trang chủ</button>
+  </div>
+
+  <div class="modal hidden" id="lb">
+    <div class="card">
+      <h3>🏆 Bảng xếp hạng</h3>
+      <div class="tabs"><button id="tabAll" class="on">Mọi thời đại</button><button id="tabWeek">Tuần này</button></div>
+      <ul id="lbList"></ul>
+      <div id="lbNote"></div>
+      <button id="lbClose">Đóng</button>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="auth">
+    <div class="card">
+      <h3>Đăng nhập</h3>
+      <button id="btnGoogle">Đăng nhập bằng Google</button>
+      <input id="aName" placeholder="Tên hiển thị (khi đăng ký)" maxlength="20" autocomplete="nickname">
+      <input id="aEmail" type="email" placeholder="Email" autocomplete="email">
+      <input id="aPass" type="password" placeholder="Mật khẩu (≥ 6 ký tự)" autocomplete="current-password">
+      <div class="row"><button id="btnLogin">Đăng nhập</button><button id="btnRegister">Đăng ký</button></div>
+      <div id="authErr"></div>
+      <button id="authClose">Chơi khách (không đăng nhập)</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="game.js"></script>
+</body>
+</html>
